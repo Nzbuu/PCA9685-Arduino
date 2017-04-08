@@ -190,7 +190,7 @@ void PCA9685::setChannelPWM(int channel, uint16_t pwmAmount) {
 }
 
 void PCA9685::setChannelsPWM(int begChannel, int numChannels, const uint16_t *pwmAmounts) {
-    if (begChannel < 0 || begChannel > 15 || numChannels < 0) return;
+    if (begChannel < 0 || begChannel > 15 || numChannels <= 0) return;
     if (begChannel + numChannels > 16) numChannels -= (begChannel + numChannels) - 16;
 
 #ifdef PCA9685_ENABLE_DEBUG_OUTPUT
@@ -201,19 +201,23 @@ void PCA9685::setChannelsPWM(int begChannel, int numChannels, const uint16_t *pw
     // In avr/libraries/Wire.h and avr/libraries/utility/twi.h, BUFFER_LENGTH controls
     // how many channels can be written at once. Therefore, we loop around until all
     // channels have been written out into their registers.
-
-    while (numChannels > 0) {
+    
+    uint16_t phaseBegin, phaseEnd;
+    int bytesLeft;
+    
+    uint16_t idxElement = 0;
+    while (idxElement < numChannels) {
+        bytesLeft = BUFFER_LENGTH;
+        
         writeChannelBegin(begChannel);
-
-        int maxChannels = min(numChannels, (BUFFER_LENGTH - 1) / 4);
-        while (maxChannels-- > 0) {
-            uint16_t phaseBegin, phaseEnd;
-            getPhaseCycle(begChannel++, *pwmAmounts++, &phaseBegin, &phaseEnd);
-
+        bytesLeft -= 1;
+        
+        for (; idxElement < numChannels & bytesLeft >= 4; ++idxElement) {
+            getPhaseCycle(begChannel + idxElement, pwmAmounts[idxElement], &phaseBegin, &phaseEnd);
             writeChannelPWM(phaseBegin, phaseEnd);
-            --numChannels;
+            bytesLeft -= 4;
         }
-
+        
         writeChannelEnd();
         if (_lastI2CError) return;
     }
@@ -259,15 +263,17 @@ uint16_t PCA9685::getChannelPWM(int channel) {
 
     int bytesRead = i2cWire_requestFrom((uint8_t)_i2cAddress, (uint8_t)4);
     if (bytesRead != 4) {
-        while (bytesRead-- > 0)
+        while (bytesRead > 0) {
+            --bytesRead;
             i2cWire_read();
+        }
         _lastI2CError = 4;
 #ifdef PCA9685_ENABLE_DEBUG_OUTPUT
         checkForErrors();
 #endif
         return 0;
     }
-
+    
     uint16_t phaseBegin = (uint16_t)i2cWire_read();
     phaseBegin |= (uint16_t)i2cWire_read() << 8;
     uint16_t phaseEnd = (uint16_t)i2cWire_read();
@@ -576,8 +582,10 @@ byte PCA9685::readRegister(byte regAddress) {
 
     int bytesRead = i2cWire_requestFrom((uint8_t)_i2cAddress, (uint8_t)1);
     if (bytesRead != 1) {
-        while (bytesRead-- > 0)
+        while (bytesRead > 0) {
+            --bytesRead;
             i2cWire_read();
+        }
         _lastI2CError = 4;
 #ifdef PCA9685_ENABLE_DEBUG_OUTPUT
         checkForErrors();
